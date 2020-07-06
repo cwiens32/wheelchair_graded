@@ -1,0 +1,20 @@
+# wc_graded_env.yaml 
+
+#General lab virtual environment
+#https://github.com/cwiens32/wheelchair_graded/tree/master/
+
+# General virtual environment that runs programs specific to the graded wheelchair manuscript.
+#
+# install: conda env create -f wc_graded_env.yaml 
+# update:  conda env update -f wc_graded_env.yaml 
+name: wc_graded_env
+dependencies:
+  - python=3.7.7
+  - pip
+  - matplotlib
+  - numpy
+  - opencv
+  - pandas
+  - spyder
+  - scipy
+  - xlrd
