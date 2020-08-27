@@ -12,21 +12,53 @@ library(RSQLite)
 # Gather data -------------------------------------------------------------
 
 # connect to database
-db <- '../../data/wc_graded.sqlite'
-conn <- dbConnect(SQLite(), db)
+db_graded <- '../../data/wc_graded.sqlite'
+conn_graded <- dbConnect(SQLite(), db_graded)
+db_level <- '../../../wheelchair_level/data/wc_level.sqlite'
+conn_level <- dbConnect(SQLite(), db_level)
 # create datatable
-wc_adj <- dbReadTable(conn, "wheelchair_adjustments")
-tab_list <- merge(dbReadTable(conn, "table_list"),
-                  dbReadTable(conn, "wheelchair_adjustments"))
+tab_list_graded <- left_join(merge(dbReadTable(conn_graded, "table_list"),
+                                   dbReadTable(conn_graded, "wheelchair_adjustments") %>% 
+                                       mutate(speed_rank = ifelse(is.na(speed_rank), 100+subject_id, speed_rank))),
+                             dbReadTable(conn_graded, "results") %>% 
+                                 rename(subject_id = Subject,
+                                        session = Session,
+                                        trial = TrialNumber,
+                                        cycle = CycleNumber)) %>% 
+    select(-"digi") %>% 
+    mutate(study = "graded")
+tab_list_level <- left_join(merge(dbReadTable(conn_level, "table_list"),
+                                  dbReadTable(conn_level, "wheelchair_adjustments") %>% 
+                                      mutate(speed_rank = ifelse(is.na(speed_rank), 100+subject_id, speed_rank))),
+                            dbReadTable(conn_level, "results") %>% 
+                                rename(subject_id = Subject,
+                                       session = Session,
+                                       trial = TrialNumber,
+                                       cycle = CycleNumber)) %>% 
+    mutate(study = "level")
+tab_list <- rbind(tab_list_graded, tab_list_level)
 # create table of all angle data
 for (cnta in 1:nrow(tab_list)){
+    # set which DB connection to use
+    if (tab_list$study[cnta] == "graded"){
+        conn_ov <- conn_graded
+    } else {
+        conn_ov <- conn_level
+    }
+    
     if (cnta == 1){
-        data_angle <- dbReadTable(conn, tab_list$angle[cnta]) %>% 
-            mutate(subject_id = tab_list$subject_id[cnta],
+        data_all <- cbind(dbReadTable(conn_ov, tab_list$angle[cnta]),
+                          dbReadTable(conn_ov, tab_list$force[cnta]) %>%
+                              select(-index)) %>% 
+            mutate(time = index*(1/240),
+                   subject_id = tab_list$subject_id[cnta],
+                   speed_rank = tab_list$speed_rank[cnta],
                    session = tab_list$session[cnta],
                    condition = tab_list$condition[cnta],
                    trial = tab_list$trial[cnta],
                    cycle = tab_list$cycle[cnta],
+                   study = tab_list$study[cnta],
+                   seshname = ifelse(tab_list$session[cnta] == 1, "Pre", "Post"),
                    seatback_angle = tab_list$seatback_angle[cnta],
                    seatback_height = tab_list$seatback_height[cnta],
                    seatback_position = tab_list$seatback_position[cnta],
@@ -34,15 +66,25 @@ for (cnta in 1:nrow(tab_list)){
                    seatheight_rear = tab_list$seatheight_rear[cnta],
                    seatheight_front = tab_list$seatheight_front[cnta],
                    stability = tab_list$stability[cnta],
-                   posture = tab_list$posture[cnta])
+                   posture = tab_list$posture[cnta],
+                   elbext_start_ind = ifelse(index == tab_list$Start_Elb_Ext_Ind[cnta]-1, 1, 0),
+                   elb_maxangvel_ind = ifelse(index == tab_list$RF_Elb_Ext_AngVel_Ind[cnta]-1, 1, 0),
+                   rf_peak_ind = ifelse(index == tab_list$RF_peak_Ind[cnta]-1, 1, 0))
+        
     } else {
-        data_angle <- rbind(data_angle,
-                            dbReadTable(conn, tab_list$angle[cnta]) %>% 
-                                mutate(subject_id = tab_list$subject_id[cnta],
+        data_all <- rbind(data_all,
+                          cbind(dbReadTable(conn_ov, tab_list$angle[cnta]),
+                                dbReadTable(conn_ov, tab_list$force[cnta]) %>%
+                                    select(-index)) %>%  
+                                mutate(time = index*(1/240),
+                                       subject_id = tab_list$subject_id[cnta],
+                                       speed_rank = tab_list$speed_rank[cnta],
                                        session = as.factor(tab_list$session[cnta]),
                                        condition = tab_list$condition[cnta],
                                        trial = tab_list$trial[cnta],
                                        cycle = tab_list$cycle[cnta],
+                                       study = tab_list$study[cnta],
+                                       seshname = ifelse(tab_list$session[cnta] == 1, "Pre", "Post"),
                                        seatback_angle = tab_list$seatback_angle[cnta],
                                        seatback_height = tab_list$seatback_height[cnta],
                                        seatback_position = tab_list$seatback_position[cnta],
@@ -50,12 +92,21 @@ for (cnta in 1:nrow(tab_list)){
                                        seatheight_rear = tab_list$seatheight_rear[cnta],
                                        seatheight_front = tab_list$seatheight_front[cnta],
                                        stability = tab_list$stability[cnta],
-                                       posture = tab_list$posture[cnta]))
+                                       posture = tab_list$posture[cnta],
+                                       elbext_start_ind = ifelse(index == tab_list$Start_Elb_Ext_Ind[cnta]-1, 1, 0),
+                                       elb_maxangvel_ind = ifelse(index == tab_list$RF_Elb_Ext_AngVel_Ind[cnta]-1, 1, 0),
+                                       rf_peak_ind = ifelse(index == tab_list$RF_peak_Ind[cnta]-1, 1, 0)))
     }
 }
 
+# set session name as factor
+data_all <- data_all %>% 
+    mutate(seshname = factor(seshname, levels=c("Pre", "Post")))
+
 # disconnect from database
-dbDisconnect(conn)
+dbDisconnect(conn_graded)
+dbDisconnect(conn_level)
+dbDisconnect(conn_ov)
 
 # UI ----------------------------------------------------------------------
 
@@ -98,12 +149,47 @@ ui <- dashboardPage(
                     )
                 )
             )),
+        fluidRow(
+            box(
+                checkboxGroupInput(
+                    inputId = "events",
+                    label = "Choose events to identify",
+                    choices = c("Peak RF (Yellow)", "Start of Elbow Extension (Black)", "Max Elbow Angular Velocity (Purple)")
+            )),
+            box(
+                selectInput(
+                    inputId = "signal",
+                    label = "Choose which signal to plot",
+                    choices = c("Angle-Angle" = "a-a",
+                                "Reaction Force" = "rf",
+                                "Reaction Force Orientation to Forearm" = "rfo")
+                )
+            )
+        ),
         # create row containing plot
-        fluidRow(box(
-            # dataTableOutput('forcetable'),
-            plotOutput('plot', height = 800),
-            width = NULL
-        )))
+        fluidRow(
+            box(
+                title = "Level",
+                plotOutput('plot_level', height = 800),
+                width = 6
+                ),
+            box(
+                title = "Graded",
+                plotOutput('plot_graded', height = 800),
+                width = 6
+            )
+        
+        ),
+        # create row for combined plot
+        fluidRow(
+            box(
+                title = "Combined",
+                plotOutput("plot_all", height = 800),
+                width = NULL
+            )
+        )
+        
+        )
 )
 
 
@@ -116,22 +202,402 @@ server <- function(input, output) {
     res_data <- callModule(
         module = selectizeGroupServer,
         id = "datafilters",
-        data = data_angle,
-        vars = colnames(data_angle[c(11:ncol(data_angle))])
+        data = data_all,
+        vars = colnames(data_all[c(11:ncol(data_all))])
     )
     
-    output$plot <- renderPlot({
+    # plot for LEVEL
+    output$plot_level <- renderPlot({
         
-        ggplot(data = res_data()) +
-            geom_point(aes(x = elbow_angle,
-                           y = torso_angle,
-                           color = session)) +
-            facet_wrap(~subject_id) +
-            labs(x = "Elbow Angle (deg)",
-                 y = "Torso Angle (deg)",
-                 color = "Session") +
-            ylim(75,95) +
-            coord_fixed(ratio=5)
+        # which signal to plot
+        if (input$signal == "a-a"){
+            
+            p <- ggplot(data = res_data() %>% 
+                            filter(study == "level")) +
+                geom_point(aes(x = elbow_angle,
+                               y = torso_angle,
+                               color = seshname)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Elbow Angle (deg)",
+                     y = "Torso Angle (deg)",
+                     color = "Session") +
+                xlim(75,175) +
+                ylim(75,95) +
+                coord_fixed(ratio=5)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                p <- p + geom_point(aes(x = elbow_angle,
+                                        y = torso_angle),
+                                    data = res_data() %>% 
+                                        filter(rf_peak_ind == 1,
+                                               study == "level"),
+                                    color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                p <- p + geom_point(aes(x = elbow_angle,
+                                        y = torso_angle),
+                                    data = res_data() %>% 
+                                        filter(elb_maxangvel_ind == 1,
+                                               study == "level"),
+                                    color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                p <- p + geom_point(aes(x = elbow_angle,
+                                        y = torso_angle),
+                                    data = res_data() %>% 
+                                        filter(elbext_start_ind == 1,
+                                               study == "level"),
+                                    color = "purple")
+            }
+            
+        } else if (input$signal == "rf"){
+            
+            p <- ggplot(data = res_data() %>% 
+                            filter(study == "level")) +
+                geom_point(aes(x = time,
+                               y = rf_mag,
+                               color = seshname)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Time (s)",
+                     y = "Reaction Force (N)",
+                     color = "Session") +
+                xlim(0, 0.9) +
+                ylim(0, 300)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                p <- p + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(rf_peak_ind == 1,
+                                               study == "level"),
+                                    color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                p <- p + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(elb_maxangvel_ind == 1,
+                                               study == "level"),
+                                    color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                p <- p + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(elbext_start_ind == 1,
+                                               study == "level"),
+                                    color = "purple")
+            }
+            
+        } else if (input$signal == "rfo"){
+            
+            p <- ggplot(data = res_data() %>% 
+                            filter(study == "level")) +
+                geom_hline(yintercept = 0) +
+                geom_point(aes(x = time,
+                               y = rf_angle2forearm,
+                               color = seshname)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Time (s)",
+                     y = "Reaction Force Orientation Relative to Forearm (deg)",
+                     color = "Session") +
+                xlim(0, 0.9) +
+                ylim(-150, 150)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                p <- p + geom_point(aes(x = time,
+                                        y = rf_angle2forearm),
+                                    data = res_data() %>% 
+                                        filter(rf_peak_ind == 1,
+                                               study == "level"),
+                                    color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                p <- p + geom_point(aes(x = time,
+                                        y = rf_angle2forearm),
+                                    data = res_data() %>% 
+                                        filter(elb_maxangvel_ind == 1,
+                                               study == "level"),
+                                    color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                p <- p + geom_point(aes(x = time,
+                                        y = rf_angle2forearm),
+                                    data = res_data() %>% 
+                                        filter(elbext_start_ind == 1,
+                                               study == "level"),
+                                    color = "purple")
+            }
+            
+        }
+        
+        # display plot
+        p
+        
+    })
+    
+    # plot for GRADED
+    output$plot_graded <- renderPlot({
+        
+        # which signal to plot
+        if (input$signal == "a-a"){
+            
+            q <- ggplot(data = res_data() %>% 
+                            filter(study == "graded")) +
+                geom_point(aes(x = elbow_angle,
+                               y = torso_angle,
+                               color = seshname)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Elbow Angle (deg)",
+                     y = "Torso Angle (deg)",
+                     color = "Session") +
+                xlim(75,175) +
+                ylim(75,95) +
+                coord_fixed(ratio=5)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                q <- q + geom_point(aes(x = elbow_angle,
+                                        y = torso_angle),
+                                    data = res_data() %>% 
+                                        filter(rf_peak_ind == 1,
+                                               study == "graded"),
+                                    color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                q <- q + geom_point(aes(x = elbow_angle,
+                                        y = torso_angle),
+                                    data = res_data() %>% 
+                                        filter(elb_maxangvel_ind == 1,
+                                               study == "graded"),
+                                    color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                q <- q + geom_point(aes(x = elbow_angle,
+                                        y = torso_angle),
+                                    data = res_data() %>% 
+                                        filter(elbext_start_ind == 1,
+                                               study == "graded"),
+                                    color = "purple")
+            }
+            
+        } else if (input$signal == "rf"){
+            
+            q <- ggplot(data = res_data() %>% 
+                            filter(study == "graded")) +
+                geom_point(aes(x = time,
+                               y = rf_mag,
+                               color = seshname)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Time (s)",
+                     y = "Reaction Force (N)",
+                     color = "Session") +
+                xlim(0, 0.9) +
+                ylim(0, 300)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                q <- q + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(rf_peak_ind == 1,
+                                               study == "graded"),
+                                    color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                q <- q + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(elb_maxangvel_ind == 1,
+                                               study == "graded"),
+                                    color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                q <- q + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(elbext_start_ind == 1,
+                                               study == "graded"),
+                                    color = "purple")
+            }
+            
+        } else if (input$signal == "rfo"){
+            
+            q <- ggplot(data = res_data() %>% 
+                            filter(study == "graded")) +
+                geom_hline(yintercept = 0) +
+                geom_point(aes(x = time,
+                               y = rf_angle2forearm,
+                               color = seshname)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Time (s)",
+                     y = "Reaction Force Orientation Relative to Forearm (deg)",
+                     color = "Session") +
+                xlim(0, 0.9) +
+                ylim(-150, 150)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                q <- q + geom_point(aes(x = time,
+                                        y = rf_angle2forearm),
+                                    data = res_data() %>% 
+                                        filter(rf_peak_ind == 1,
+                                               study == "graded"),
+                                    color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                q <- q + geom_point(aes(x = time,
+                                        y = rf_angle2forearm),
+                                    data = res_data() %>% 
+                                        filter(elb_maxangvel_ind == 1,
+                                               study == "graded"),
+                                    color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                q <- q + geom_point(aes(x = time,
+                                        y = rf_angle2forearm),
+                                    data = res_data() %>% 
+                                        filter(elbext_start_ind == 1,
+                                               study == "graded"),
+                                    color = "purple")
+            }
+            
+        }
+        
+        # display plot
+        q
+        
+    })
+    
+    # plot for LEVEL AND GRADED
+    output$plot_all <- renderPlot({
+        
+        # which signal to plot
+        if (input$signal == "a-a"){
+            
+            pq <- ggplot(data = res_data()) +
+                geom_point(aes(x = elbow_angle,
+                               y = torso_angle,
+                               color = seshname,
+                               shape = study)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Elbow Angle (deg)",
+                     y = "Torso Angle (deg)",
+                     color = "Session",
+                     shape = "Condition") +
+                ylim(75,95) +
+                coord_fixed(ratio=5)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                pq <- pq + geom_point(aes(x = elbow_angle,
+                                          y = torso_angle,
+                                          shape = study),
+                                      data = res_data() %>% 
+                                          filter(rf_peak_ind == 1),
+                                      color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                pq <- pq + geom_point(aes(x = elbow_angle,
+                                          y = torso_angle,
+                                          shape = study),
+                                      data = res_data() %>% 
+                                          filter(elb_maxangvel_ind == 1),
+                                      color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                pq <- pq + geom_point(aes(x = elbow_angle,
+                                          y = torso_angle,
+                                          shape = study),
+                                      data = res_data() %>% 
+                                          filter(elbext_start_ind == 1),
+                                      color = "purple")
+            }
+            
+        } else if (input$signal == "rf"){
+            
+            pq <- ggplot(data = res_data()) +
+                geom_point(aes(x = time,
+                               y = rf_mag,
+                               color = seshname,
+                               shape = study)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Time (s)",
+                     y = "Reaction Force (N)",
+                     color = "Session",
+                     shape = "Condition") +
+                xlim(0, 0.9) +
+                ylim(0, 300)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                pq <- pq + geom_point(aes(x = time,
+                                          y = rf_mag),
+                                      data = res_data() %>% 
+                                          filter(rf_peak_ind == 1),
+                                      color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                pq <- pq + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(elb_maxangvel_ind == 1),
+                                    color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                pq <- pq + geom_point(aes(x = time,
+                                        y = rf_mag),
+                                    data = res_data() %>% 
+                                        filter(elbext_start_ind == 1),
+                                    color = "purple")
+            }
+            
+        } else if (input$signal == "rfo"){
+            
+            pq <- ggplot(data = res_data()) +
+                geom_hline(yintercept = 0) +
+                geom_point(aes(x = time,
+                               y = rf_angle2forearm,
+                               color = seshname,
+                               shape = study)) +
+                facet_wrap(~speed_rank) +
+                labs(x = "Time (s)",
+                     y = "Reaction Force Orientation Relative to Forearm (deg)",
+                     color = "Session",
+                     shape = "Condition") +
+                xlim(0, 0.9) +
+                ylim(-150, 150)
+            
+            # display events (if selected)
+            if ("Peak RF (Yellow)" %in% input$events){
+                pq <- pq + geom_point(aes(x = time,
+                                          y = rf_angle2forearm),
+                                      data = res_data() %>% 
+                                          filter(rf_peak_ind == 1),
+                                      color = "yellow")
+            }
+            if ("Start of Elbow Extension (Black)" %in% input$events){
+                pq <- pq + geom_point(aes(x = time,
+                                          y = rf_angle2forearm),
+                                      data = res_data() %>% 
+                                          filter(elb_maxangvel_ind == 1),
+                                      color = "black")
+            }
+            if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
+                pq <- pq + geom_point(aes(x = time,
+                                          y = rf_angle2forearm),
+                                      data = res_data() %>% 
+                                          filter(elbext_start_ind == 1),
+                                      color = "purple")
+            }
+            
+        }
+        
+        # display plot
+        pq
         
     })
 }
