@@ -53,6 +53,7 @@ for (cnta in 1:nrow(tab_list)){
             mutate(time = index*(1/240),
                    subject_id = tab_list$subject_id[cnta],
                    speed_rank = tab_list$speed_rank[cnta],
+                   speed_rank_char = as.character(tab_list$speed_rank[cnta]),
                    session = tab_list$session[cnta],
                    condition = tab_list$condition[cnta],
                    trial = tab_list$trial[cnta],
@@ -79,6 +80,7 @@ for (cnta in 1:nrow(tab_list)){
                                 mutate(time = index*(1/240),
                                        subject_id = tab_list$subject_id[cnta],
                                        speed_rank = tab_list$speed_rank[cnta],
+                                       speed_rank_char = as.character(tab_list$speed_rank[cnta]),
                                        session = as.factor(tab_list$session[cnta]),
                                        condition = tab_list$condition[cnta],
                                        trial = tab_list$trial[cnta],
@@ -101,7 +103,7 @@ for (cnta in 1:nrow(tab_list)){
 
 # set session name as factor
 data_all <- data_all %>% 
-    mutate(seshname = factor(seshname, levels=c("Pre", "Post")))
+  mutate(seshname = relevel(factor(seshname, levels=c("Pre", "Post")), "Pre"))
 
 # disconnect from database
 dbDisconnect(conn_graded)
@@ -137,6 +139,7 @@ ui <- dashboardPage(
                     selectizeGroupUI(
                         id = "datafilters",
                         params = list(
+                            speed_rank_char = list(inputId = "speed_rank_char", title = "Participant:"),
                             seatback_angle = list(inputId = "seatback_angle", title = "Seatback Angle:"),
                             seatback_height = list(inputId = "seatback_height", title = "Seatback Height:"),
                             seatback_position = list(inputId = "seatback_position", title = "Seatback Position:"),
@@ -239,8 +242,16 @@ server <- function(input, output) {
                                         y = torso_angle),
                                     data = res_data() %>% 
                                         filter(elb_maxangvel_ind == 1,
-                                               study == "level"),
-                                    color = "black")
+                                               study == "level",
+                                               session == 1),
+                                    color = "black") +
+                    geom_point(aes(x = elbow_angle,
+                                   y = torso_angle),
+                               data = res_data() %>% 
+                                   filter(elb_maxangvel_ind == 1,
+                                          study == "level",
+                                          session == 3),
+                               color = "yellow")
             }
             if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
                 p <- p + geom_point(aes(x = elbow_angle,
@@ -279,8 +290,16 @@ server <- function(input, output) {
                                         y = rf_mag),
                                     data = res_data() %>% 
                                         filter(elb_maxangvel_ind == 1,
-                                               study == "level"),
-                                    color = "black")
+                                               study == "level",
+                                               session == 1),
+                                    color = "black") +
+                    geom_point(aes(x = time,
+                                   y = rf_mag),
+                               data = res_data() %>% 
+                                   filter(elb_maxangvel_ind == 1,
+                                          study == "level",
+                                          session == 3),
+                               color = "yellow")
             }
             if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
                 p <- p + geom_point(aes(x = time,
@@ -312,8 +331,16 @@ server <- function(input, output) {
                                         y = rf_angle2forearm),
                                     data = res_data() %>% 
                                         filter(rf_peak_ind == 1,
-                                               study == "level"),
-                                    color = "yellow")
+                                               study == "level",
+                                               session == 1),
+                                    color = "yellow") + 
+                    geom_point(aes(x = time,
+                                   y = rf_angle2forearm),
+                               data = res_data() %>% 
+                                   filter(rf_peak_ind == 1,
+                                          study == "level",
+                                          session == 3),
+                               color = "orange")
             }
             if ("Start of Elbow Extension (Black)" %in% input$events){
                 p <- p + geom_point(aes(x = time,
@@ -372,8 +399,16 @@ server <- function(input, output) {
                                         y = torso_angle),
                                     data = res_data() %>% 
                                         filter(elb_maxangvel_ind == 1,
-                                               study == "graded"),
-                                    color = "black")
+                                               study == "graded",
+                                               session == 1),
+                                    color = "black") +
+                    geom_point(aes(x = elbow_angle,
+                                   y = torso_angle),
+                               data = res_data() %>% 
+                                   filter(elb_maxangvel_ind == 1,
+                                          study == "graded",
+                                          session == 3),
+                               color = "yellow")
             }
             if ("Max Elbow Angular Velocity (Purple)" %in% input$events){
                 q <- q + geom_point(aes(x = elbow_angle,
