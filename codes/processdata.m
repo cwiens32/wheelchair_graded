@@ -89,9 +89,13 @@ for k = 1: length(matfiles)
     torso_vel_CROP = torso_vel;
     % peak reaction force during elbow extension
     [~, inddRF] = max( RF_mag_CROP );
+    % save shoulder NJM magnitude during crop (using Mz)
+    shoulderNJMmag_crop = Shoulder_NJM_mag(start:stop);
     
     %% save angle data
-    save(fullFileName, 'RF_angleForearmCROP', 'RF_mag_CROP', 'elbow_ang_CROP', 'elb_vel_CROP',...
+    save(fullFileName, 'shoulderNJMmag_crop', 'RF_angleForearmCROP',...
+        'RF_mag', 'RF_mag_CROP',...
+        'elbow_ang_CROP', 'elb_vel_CROP',...
         'torso_ang_CROP', 'torso_vel_CROP', '-append')
 
     %% cropped to elbow extension
@@ -153,4 +157,4 @@ for k = 1: length(matfiles)
 end
 
 %% write out table
-writetable(tableOut, 'DOD_graded_results_CW_200826.xlsx')
+writetable(tableOut, 'DOD_graded_results_CW_200831.xlsx')
